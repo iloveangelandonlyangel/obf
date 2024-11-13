@@ -1,0 +1,141 @@
+
+
+if getgenv().AimbotRan then
+    return
+else
+    getgenv().AimbotRan = true
+end
+
+local RunService = game:GetService('RunService')
+local Workspace = game:GetService('Workspace')
+local Players = game:GetService('Players')
+local UserInputService = game:GetService('UserInputService')
+local Drawing = Drawing -- Roblox Drawing API for FOV circle
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+
+local Player = nil -- Target player
+local FOVCircle
+
+-- Function to set up the FOV circle if ShowFOV is enabled
+local function CreateFOVCircle()
+    if Aimbot.ShowFOV then
+        FOVCircle = Drawing.new("Circle")
+        FOVCircle.Color = Aimbot.FOVSettings.Color
+        FOVCircle.Thickness = 1
+        FOVCircle.NumSides = 30
+        FOVCircle.Transparency = Aimbot.FOVSettings.Transparency
+        FOVCircle.Filled = false
+        FOVCircle.Radius = Aimbot.FOVSettings.Radius
+        FOVCircle.Visible = true
+    elseif FOVCircle then
+        FOVCircle.Visible = false
+    end
+end
+
+CreateFOVCircle() -- Initialize the FOV circle
+
+-- Function to update FOV circle position
+RunService.RenderStepped:Connect(function()
+    if Aimbot.ShowFOV and FOVCircle then
+        FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y)
+    end
+end)
+
+-- Function to get the closest player within FOV and according to team check
+local function GetClosestPlayer()
+    local ClosestDistance, ClosestPlayer = Aimbot.FOVSettings.Radius, nil
+    for _, TargetPlayer in pairs(Players:GetPlayers()) do
+        if TargetPlayer ~= LocalPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild('HumanoidRootPart') then
+            if Aimbot.TeamCheck and TargetPlayer.Team == LocalPlayer.Team then
+                continue -- Ignore teammates if TeamCheck is enabled
+            end
+            local ScreenPoint, Visible = Camera:WorldToScreenPoint(TargetPlayer.Character.HumanoidRootPart.Position)
+            if Visible then
+                local Distance = (Vector2.new(Mouse.X, Mouse.Y) - Vector2.new(ScreenPoint.X, ScreenPoint.Y)).Magnitude
+                if Distance < ClosestDistance then
+                    ClosestDistance = Distance
+                    ClosestPlayer = TargetPlayer
+                end
+            end
+        end
+    end
+    return ClosestPlayer
+end
+
+-- Key binding to toggle targeting
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode[Aimbot.Keybind] then
+        Player = not Player and GetClosestPlayer() or nil
+    end
+end)
+
+-- Handle Trigger Bot functionality based on TriggerBotMode
+local TriggerBotEnabled = false
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode[Aimbot.TriggerBotKey] then
+        if Aimbot.TriggerBotMode == "hold" then
+            TriggerBotEnabled = true
+        elseif Aimbot.TriggerBotMode == "toggle" then
+            TriggerBotEnabled = not TriggerBotEnabled
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode[Aimbot.TriggerBotKey] and Aimbot.TriggerBotMode == "hold" then
+        TriggerBotEnabled = false
+    end
+end)
+
+-- Main loop for aiming and Trigger Bot
+RunService.RenderStepped:Connect(function()
+    if not Aimbot.Status or not Player then
+        return
+    end
+
+    -- Update FOV radius if needed
+    if FOVCircle then
+        FOVCircle.Radius = Aimbot.FOVSettings.Radius
+    end
+
+    -- Check if target player is still valid
+    if not Player.Character or not Player.Character:FindFirstChild("HumanoidRootPart") then
+        Player = GetClosestPlayer() -- Refresh target if lost
+        return
+    end
+
+    -- Find the hit part based on body part priority
+    local Hitpart
+    for _, PartName in ipairs(Aimbot.Hitpart) do
+        Hitpart = Player.Character:FindFirstChild(PartName)
+        if Hitpart then break end
+    end
+    if not Hitpart then
+        return
+    end
+
+    -- Calculate target CFrame with prediction if enabled
+    local targetPosition = Hitpart.Position
+    if Aimbot.UsePrediction then
+        targetPosition = targetPosition + Hitpart.Velocity * Vector3.new(Aimbot.Prediction.X, Aimbot.Prediction.Y, Aimbot.Prediction.X)
+    end
+    local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPosition)
+
+    -- Apply smoothness if enabled
+    if Aimbot.UseSmoothness then
+        Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Aimbot.Smoothness)
+    else
+        Camera.CFrame = targetCFrame
+    end
+
+    -- Trigger Bot functionality: simulate shooting if the mouse is on the target hit part
+    if Aimbot.TriggerBot and TriggerBotEnabled and Hitpart then
+        local MouseTarget = Mouse.Target
+        if MouseTarget and MouseTarget:IsDescendantOf(Player.Character) then
+            mouse1click() -- Simulate left mouse click to shoot
+        end
+    end
+end)
